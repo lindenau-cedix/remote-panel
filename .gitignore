@@ -1,0 +1,37 @@
+# secrets / env
+.env
+*.env
+*.pem
+*.key
+*.jks
+*.keystore
+
+# python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+# android / gradle
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/captures/
+*.apk
+*.aab
+
+# ide
+.idea/
+.vscode/
+*.iml
+
+# os
+.DS_Store
+Thumbs.db
+
+# runtime artifacts
+audit.jsonl
+*.log

@@ -1,0 +1,1 @@
+"""server — Remote Panel webhook receiver."""

@@ -1,0 +1,31 @@
+{
+  "commands": [
+    {
+      "id": "restart-nginx",
+      "name": "Restart Nginx",
+      "description": "Reload the Nginx web server",
+      "argv": ["sudo", "-n", "systemctl", "restart", "nginx"],
+      "cwd": null,
+      "env": {},
+      "timeout_seconds": 10
+    },
+    {
+      "id": "deploy-site",
+      "name": "Deploy Site",
+      "description": "Pull latest and restart app",
+      "argv": ["/opt/panel/bin/deploy.sh"],
+      "cwd": "/opt/panel",
+      "env": { "DEPLOY_ENV": "production" },
+      "timeout_seconds": 60
+    },
+    {
+      "id": "tail-error-log",
+      "name": "Show recent error log",
+      "description": "Last 50 lines of /var/log/nginx/error.log",
+      "argv": ["/usr/bin/tail", "-n", "50", "/var/log/nginx/error.log"],
+      "cwd": null,
+      "env": {},
+      "timeout_seconds": 5
+    }
+  ]
+}
