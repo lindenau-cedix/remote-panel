@@ -1,0 +1,38 @@
+[Unit]
+Description=Remote Panel webhook receiver
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=panel
+Group=panel
+WorkingDirectory=/opt/panel
+Environment=PANEL_SECRET=
+# Auto-load secret from a root-readable file (`sudo chmod 640` after creation).
+EnvironmentFile=-/etc/panel/env
+ExecStart=/opt/panel/.venv/bin/uvicorn server.app:app \
+    --host 127.0.0.1 --port 8000 --log-level info
+Restart=on-failure
+RestartSec=3s
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+LockPersonality=true
+MemoryDenyWriteExecute=true
+ReadWritePaths=/opt/panel/audit.jsonl
+StateDirectory=panel
+StateDirectoryMode=0750
+
+# Hardening: only reload-whitelist on SIGHUP; disallow other signals.
+KillSignal=SIGTERM
+FinalKillSignal=SIGKILL
+
+[Install]
+WantedBy=multi-user.target

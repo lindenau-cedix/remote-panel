@@ -1,0 +1,23 @@
+# /etc/sudoers.d/panel
+#
+# Granted privileges for the `panel` user. ONLY the systemctl units listed here
+# may be invoked via `sudo -n`. Wildcards are intentionally avoided.
+#
+# Install:    sudo install -m 0440 panel.example /etc/sudoers.d/panel
+# Validate:   sudo visudo -c -f /etc/sudoers.d/panel
+
+# Reload nginx (used by restart-nginx)
+panel ALL=(root) NOPASSWD: /usr/bin/systemctl restart nginx
+panel ALL=(root) NOPASSWD: /usr/bin/systemctl reload nginx
+
+# Optional: status readouts (no side effects)
+panel ALL=(root) NOPASSWD: /usr/bin/systemctl status nginx
+
+# User-supplied commands go BELOW this line — adjust to your whitelist.json.
+# Example:
+#   panel ALL=(root) NOPASSWD: /usr/bin/systemctl restart my-app.service
+#
+# DO NOT add:
+#   * /usr/bin/sudo
+#   * /bin/sh, /bin/bash, /usr/bin/env
+#   * anything containing wildcards or shell metacharacters

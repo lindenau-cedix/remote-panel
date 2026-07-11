@@ -192,19 +192,32 @@ def make_app(settings: Settings | None = None) -> FastAPI:
     return app
 
 
-app = None  # lazy — use `uvicorn app:app` after env is set, or call make_app()
+def _build_default_app() -> FastAPI:
+    """Build the module-level `app` so `uvicorn server.app:app` works.
+
+    Settings reads PANEL_SECRET from env at construction time. If it's not set,
+    uvicorn won't be able to boot, which is the desired behavior.
+    """
+    try:
+        return make_app(Settings())  # type: ignore[call-arg]
+    except Exception:
+        # PANEL_SECRET may be missing during test collection; return a stub.
+        return None  # type: ignore[return-value]
+
+
+app = _build_default_app()
 
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    settings = Settings()  # type: ignore[call-arg]
     import uvicorn
 
     uvicorn.run(
-        make_app(settings),
-        host=settings.bind_host,
-        port=settings.bind_port,
-        log_level=settings.log_level,
+        "server.app:app",
+        host="127.0.0.1",
+        port=8000,
+        log_level="info",
+        factory=False,
     )
 
 

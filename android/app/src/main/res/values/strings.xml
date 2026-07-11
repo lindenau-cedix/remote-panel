@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Remote Panel</string>
+    <string name="setup_title">First-time setup</string>
+    <string name="setup_server_label">Server URL</string>
+    <string name="setup_secret_label">Shared secret (hex)</string>
+    <string name="setup_save">Save</string>
+    <string name="panel_title">Remote Panel</string>
+    <string name="confirm_title">Run command?</string>
+    <string name="confirm_run">Run</string>
+    <string name="confirm_cancel">Cancel</string>
+    <string name="result_ok">Success</string>
+    <string name="result_failed">Failed</string>
+    <string name="result_close">Close</string>
+    <string name="error_network">Network error</string>
+    <string name="error_invalid_url">Server URL must start with https://, or http://10.0.2.2 for the emulator.</string>
+    <string name="error_secret_length">Secret must be at least 16 characters.</string>
+</resources>

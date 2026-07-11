@@ -1,0 +1,36 @@
+# Caddy reverse proxy for Remote Panel.
+#
+# Replace `panel.example.com` with your hostname. Caddy will issue and renew
+# Let's Encrypt certificates automatically.
+
+panel.example.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8000 {
+        # Pass the real client IP to FastAPI's request.client.host so the
+        # rate limiter keys on it. Caddy sets X-Forwarded-For for us.
+        header_up X-Forwarded-For {remote_host}
+    }
+
+    # Tighten the surface area:
+    request_body {
+        max_size 4KB
+    }
+
+    # Optional: deny everything except POST /hook, GET /healthz, GET /buttons
+    @post_hook    method POST  path /hook
+    @get_health   method GET   path /healthz
+    @get_buttons  method GET   path /buttons
+    @blocked      not method   POST   path /hook
+                    not method   GET    path /healthz
+                    not method   GET    path /buttons
+    handle_response @blocked {
+        respond "404 not found" 404
+    }
+
+    log {
+        output file /var/log/caddy/remote-panel.log {
+            roll_size 10mb
+            roll_keep 5
+        }
+    }
+}
