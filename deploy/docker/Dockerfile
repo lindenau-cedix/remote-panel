@@ -47,9 +47,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # FastAPI executor reach the privileged `panel-host` sidecar via
 # `docker exec panel-host <argv...>`. gosu is the privilege-drop tool
 # the entrypoint uses to switch from root (default) to the panel user
-# before launching uvicorn.
+# before launching uvicorn. openssh-client is the SSH client used by
+# Plan B's SSH-wrap executor mode (commands execute on the host via
+# `ssh user@host -- argv`, with `command=` pinned in authorized_keys).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends docker.io docker-cli tini gosu \
+    && apt-get install -y --no-install-recommends docker.io docker-cli openssh-client tini gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root user; uid 999 is conventional for "system" service accounts.

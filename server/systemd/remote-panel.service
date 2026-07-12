@@ -7,8 +7,10 @@ Wants=network-online.target
 Type=exec
 User=panel
 Group=panel
-WorkingDirectory=/opt/panel
-Environment=PANEL_SECRET=
+WorkingDirectory=/opt/panel/repo
+Environment=PYTHONPATH=/opt/panel/repo
+Environment=PANEL_WHITELIST_PATH=/opt/panel/whitelist.json
+Environment=PANEL_AUDIT_PATH=/opt/panel/audit.jsonl
 # Auto-load secret from a root-readable file (`sudo chmod 640` after creation).
 EnvironmentFile=-/etc/panel/env
 ExecStart=/opt/panel/.venv/bin/uvicorn server.app:app \

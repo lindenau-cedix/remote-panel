@@ -123,3 +123,86 @@ def test_default_docker_bin_is_absolute():
     # The whitelist validator rejects non-absolute argv[0] (unless in
     # ALLOWED_BASENAMES). The default must therefore be absolute.
     assert DEFAULT_DOCKER_BIN.startswith("/")
+
+# ---- SSH passthrough (Plan B) --------------------------------------------
+
+
+def test_rewrite_command_passes_through_ssh_block():
+    """An entry with an `ssh` block is returned unchanged.
+
+    The executor wraps the argv at call time, so the docker rewriter
+    must NOT also prepend `docker exec`. Otherwise the resulting
+    argv would be `docker exec panel-host ssh -l user host -- ...`,
+    which is meaningless and would fail whitelist validation (argv[0]
+    would be the docker binary, not the actual command).
+    """
+    entry = {
+        "id": "sim24-bot",
+        "name": "Bock datavolume",
+        "description": "Refresh sim24.",
+        "argv": ["/usr/local/bin/sim24", "book"],
+        "cwd": None,
+        "env": {},
+        "timeout_seconds": 120,
+        "ssh": {
+            "host": "localhost",
+            "user": "root",
+            "key_path": "/etc/panel/ssh/sim24-bot.ed25519",
+        },
+    }
+    out = rewrite_command(
+        entry, host_container="panel-host", docker_bin="/usr/bin/docker"
+    )
+    assert out["argv"] == entry["argv"]
+    assert out["ssh"] == entry["ssh"]
+    # Nothing else should change either.
+    assert out["id"] == entry["id"]
+    assert out["name"] == entry["name"]
+    assert out["description"] == entry["description"]
+    assert out["cwd"] == entry["cwd"]
+    assert out["env"] == entry["env"]
+    assert out["timeout_seconds"] == entry["timeout_seconds"]
+
+
+def test_rewrite_whitelist_mixed_ssh_and_docker(sample):
+    """Mixed-mode whitelist: SSH entries pass through, others get rewritten."""
+    from server.docker_rewrite import rewrite_whitelist
+
+    data = {
+        "commands": [
+            {
+                "id": "sim24-bot",
+                "name": "Bock",
+                "description": "d",
+                "argv": ["/usr/local/bin/sim24", "book"],
+                "cwd": None,
+                "env": {},
+                "timeout_seconds": 60,
+                "ssh": {
+                    "host": "localhost",
+                    "user": "root",
+                    "key_path": "/etc/panel/ssh/sim24-bot.ed25519",
+                },
+            },
+            {
+                "id": "local-cmd",
+                "name": "Local",
+                "description": "d",
+                "argv": ["/bin/echo", "hi"],
+                "cwd": None,
+                "env": {},
+                "timeout_seconds": 5,
+            },
+        ]
+    }
+    out = rewrite_whitelist(
+        data, host_container="panel-host", docker_bin="/usr/bin/docker"
+    )
+    assert out["commands"][0]["argv"] == [
+        "/usr/local/bin/sim24", "book"
+    ]  # passthrough
+    assert out["commands"][0]["ssh"]["host"] == "localhost"
+    assert out["commands"][1]["argv"] == [
+        "/usr/bin/docker", "exec", "-u", "root", "--", "panel-host",
+        "/bin/echo", "hi",
+    ]

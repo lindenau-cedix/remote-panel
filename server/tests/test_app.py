@@ -292,3 +292,109 @@ async def test_audit_log_written(client):
     # are line-buffered. Re-reading the file should see exec.done.
     lines = audit_p.read_text(encoding="utf-8").strip().splitlines()
     assert any("exec.done" in line for line in lines), lines
+
+
+@pytest.mark.asyncio
+async def test_audit_log_records_transport_local_by_default(client):
+    """Without SSH config, exec events record transport: local."""
+    c, _, settings, audit_p = client
+    body = json.dumps({"command_id": "echo-hello", "nonce": "n-audit-local-0001"})
+    sig, ts, nonce = _sign(settings.secret, body)
+    await c.post(
+        "/hook",
+        content=body,
+        headers={
+            "X-Panel-Signature": sig,
+            "X-Panel-Timestamp": ts,
+            "X-Panel-Nonce": nonce,
+            "Content-Type": "application/json",
+        },
+    )
+    lines = audit_p.read_text(encoding="utf-8").strip().splitlines()
+    starts = [l for l in lines if '"exec.start"' in l]
+    assert starts, lines
+    assert '"transport":"local"' in starts[-1], starts[-1]
+    assert '"ssh_target":null' in starts[-1], starts[-1]
+
+
+@pytest.mark.asyncio
+async def test_hook_with_ssh_block_records_ssh_transport(tmp_path: Path):
+    """A whitelist entry with an `ssh` block causes transport: ssh in audit.
+
+    The exec call is intercepted via a fake subprocess.run so we don't
+    actually need an SSH server. The audit log records the wrapped
+    transport and target.
+    """
+    from subprocess import CompletedProcess
+    import server.executor as exec_mod
+
+    wl = tmp_path / "wl.json"
+    wl.write_text(json.dumps({
+        "commands": [
+            {
+                "id": "sim24-bot",
+                "name": "Sim24",
+                "description": "Book data volume",
+                "argv": ["/usr/local/bin/sim24", "book"],
+                "cwd": None,
+                "env": {},
+                "timeout_seconds": 5,
+                "ssh": {
+                    "host": "localhost",
+                    "user": "root",
+                    "key_path": "/etc/panel/ssh/sim24-bot.ed25519",
+                },
+            }
+        ]
+    }))
+    audit_p = tmp_path / "audit.jsonl"
+    settings = Settings(
+        secret="test-secret-for-pytest-1234567890",
+        whitelist_path=wl,
+        audit_path=audit_p,
+    )
+    application = make_app(settings)
+    transport = ASGITransport(app=application)
+
+    def fake_run(*args, **kwargs):
+        argv = kwargs.get("args") or (args[0] if args else [])
+        # Simulate a successful ssh call.
+        return CompletedProcess(
+            args=argv, returncode=0, stdout="booked\n", stderr=""
+        )
+
+    real_run = exec_mod.subprocess.run
+    exec_mod.subprocess.run = fake_run
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            body = json.dumps({
+                "command_id": "sim24-bot",
+                "nonce": "n-ssh-audit-0001",
+            })
+            sig, ts, nonce = _sign(settings.secret, body)
+            r = await ac.post(
+                "/hook",
+                content=body,
+                headers={
+                    "X-Panel-Signature": sig,
+                    "X-Panel-Timestamp": ts,
+                    "X-Panel-Nonce": nonce,
+                    "Content-Type": "application/json",
+                },
+            )
+    finally:
+        exec_mod.subprocess.run = real_run
+        audit.set_default(None)
+
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["ok"] is True
+    assert j["exit_code"] == 0
+
+    lines = audit_p.read_text(encoding="utf-8").strip().splitlines()
+    starts = [l for l in lines if '"exec.start"' in l]
+    dones = [l for l in lines if '"exec.done"' in l]
+    assert starts and dones
+    assert '"transport":"ssh"' in starts[-1], starts[-1]
+    assert '"ssh_target":"root@localhost"' in starts[-1], starts[-1]
+    assert '"transport":"ssh"' in dones[-1], dones[-1]

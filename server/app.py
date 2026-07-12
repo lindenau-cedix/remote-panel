@@ -26,7 +26,7 @@ from .config import Settings
 from .executor import execute
 from .ratelimit import NonceStore, RateLimitConfig, TokenBucket
 from .signer import verify_signature
-from .whitelist import Whitelist, WhitelistError, load_whitelist
+from .whitelist import SshTarget, Whitelist, WhitelistError, load_whitelist
 
 
 logger = logging.getLogger("remote_panel")
@@ -163,9 +163,30 @@ def make_app(settings: Settings | None = None) -> FastAPI:
             )
 
         spec = whitelist.get(body.command_id)
-        audit.record({"event": "exec.start", "ip": ip, "command_id": body.command_id, "argv0": spec.argv[0]})
+        # Plan B: pick an SSH target. Per-command `spec.ssh` overrides
+        # the global Settings default. With neither set, the command
+        # runs locally as before.
+        ssh_target = spec.ssh
+        if ssh_target is None and settings.ssh_target_host is not None:
+            ssh_target = SshTarget(
+                host=settings.ssh_target_host,
+                user=settings.ssh_target_user or "",
+                key_path=str(settings.ssh_key_path) if settings.ssh_key_path else "",
+            )
+        transport = "ssh" if ssh_target is not None else "local"
+        ssh_target_str = (
+            f"{ssh_target.user}@{ssh_target.host}" if ssh_target is not None else None
+        )
+        audit.record({
+            "event": "exec.start",
+            "ip": ip,
+            "command_id": body.command_id,
+            "argv0": spec.argv[0],
+            "transport": transport,
+            "ssh_target": ssh_target_str,
+        })
         t0 = time.monotonic()
-        result = execute(spec)
+        result = execute(spec, ssh_target=ssh_target)
         elapsed = int((time.monotonic() - t0) * 1000)
         audit.record({
             "event": "exec.done",
@@ -174,6 +195,8 @@ def make_app(settings: Settings | None = None) -> FastAPI:
             "exit_code": result.exit_code,
             "duration_ms": elapsed,
             "timed_out": result.timed_out,
+            "transport": transport,
+            "ssh_target": ssh_target_str,
         })
 
         status = 408 if result.timed_out else 200

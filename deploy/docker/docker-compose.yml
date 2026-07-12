@@ -61,6 +61,14 @@ services:
       PANEL_WHITELIST_SRC: /etc/panel/whitelist.src.json
       PANEL_WHITELIST_PATH: /etc/panel/whitelist.json
       PANEL_AUDIT_PATH: /var/lib/panel/audit/audit.jsonl
+      # SSH-wrap mode (Plan B). When all three are set, every whitelist
+      # entry without its own `ssh` block is wrapped in
+      # `ssh -i KEY -l USER HOST -- ARGV`. Per-entry `ssh:` overrides
+      # these. Default empty = local execution (legacy docker-exec mode).
+      # See deploy/docker/README.md § Using SSH-wrap mode for setup.
+      PANEL_SSH_TARGET_HOST: ${PANEL_SSH_TARGET_HOST:-}
+      PANEL_SSH_TARGET_USER: ${PANEL_SSH_TARGET_USER:-}
+      PANEL_SSH_KEY_PATH: ${PANEL_SSH_KEY_PATH:-}
     volumes:
       # The source whitelist — you edit THIS one. Bind-mounted read-only
       # into the /etc/panel tmpfs. The rewriter reads this file and
@@ -75,6 +83,16 @@ services:
       # place this socket is mounted. cap_drop ALL + no-new-privileges
       # reduce the blast radius if panel is compromised.
       - /var/run/docker.sock:/var/run/docker.sock
+      # SSH-wrap mode key material (Plan B). The host directory
+      # /etc/panel/ssh must contain one private key per command that
+      # opts into SSH-wrap, plus a known_hosts pinning the loopback
+      # host key. Read-only because ssh refuses to use a key it can
+      # also write to. The matching authorized_keys line on the host
+      # uses `command="..."` to pin each key to one whitelist argv —
+      # even if the private key leaks, the only thing the SSH layer
+      # can invoke is the exact argv it's pinned to. See
+      # deploy/docker/README.md § Using SSH-wrap mode.
+      - /etc/panel/ssh:/etc/panel/ssh:ro
     networks:
       - panel-net
     ports:

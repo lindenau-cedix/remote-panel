@@ -6,12 +6,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Remote Panel — an Android app that sends signed HTTPS webhooks to a small FastAPI server, which substitutes a matching argv list from a JSON whitelist and runs it. The phone is untrusted; the server owns the argv. See `README.md` for the full threat model.
 
+**Two execution paths for the argv** (both honor `shell=False` on the panel side):
+
+1. **Default** — `executor.execute()` runs argv directly. On bare metal that's local; on the docker stack it's wrapped at container start by `server/docker_rewrite.py` to `docker exec panel-host <argv>` (the `panel-host` sidecar holds the privileged binaries).
+2. **SSH-wrap mode (Plan B)** — when a whitelist entry has an optional `ssh:` block, the executor builds `ssh -i KEY -l USER HOST -- <argv>` at call time. The host's `authorized_keys` pins the exact argv via a `command=` directive, so even if the private key leaks the SSH layer enforces a narrower allowlist than the panel's. See `deploy/docker/README.md` § "Using SSH-wrap mode" for setup (per-command keypair, `known_hosts` pinning, `command=` syntax).
+
 ## Commands
 
 The Makefile is the entry point for everything. Common targets:
 
 ```bash
-make test                            # server tests (pytest, 61 tests)
+make test                            # server tests (pytest, 83 tests across 6 files)
 make run-server                      # uvicorn on 127.0.0.1:8088 (PANEL_SECRET must be set)
 make smoke                           # curl /healthz on the running server
 make build-apk                       # assemble debug APK (needs JDK 17 + Android SDK)
@@ -69,7 +74,9 @@ The Caddyfiles (`deploy/docker/Caddyfile` + `deploy/Caddyfile.example`) use Cadd
 
 ### Bare-metal deployment (`deploy/` + `server/systemd/` + `server/sudoers.d/`)
 
-Systemd unit `server/systemd/remote-panel.service` hardens the process with `ProtectSystem=strict`, `NoNewPrivileges`, `PrivateTmp`, `PrivateDevices`, `RestrictNamespaces`, `MemoryDenyWriteExecute`, etc. The sudoers snippet `server/sudoers.d/panel.example` lists the exact commands the panel user can run with `sudo -n` — wildcards are intentionally avoided. Caddy reverse proxy in `deploy/Caddyfile.example`. Secret lives in `/etc/panel/env` (mode 0640, owner `root:panel`).
+Systemd unit `server/systemd/remote-panel.service` hardens the process with `ProtectSystem=strict`, `NoNewPrivileges`, `PrivateTmp`, `PrivateDevices`, `RestrictNamespaces`, `MemoryDenyWriteExecute`, etc. The sudoers snippet `server/sudoers.d/panel.example` lists the exact commands the panel user can run with `sudo -n` — wildcards are intentionally avoided. Caddy reverse proxy in `deploy/Caddyfile.example` (drops into `/etc/caddy/Caddyfile.d/remote-panel.caddy`). Secret lives in `/etc/panel/env` (mode 0640, owner `root:panel`).
+
+`server/systemd/install.sh` is an idempotent installer for a fresh Debian 12+ host: creates the `panel` user, builds the venv, drops the whitelist, writes `/etc/panel/env` (preserving an existing `PANEL_SECRET=` so the phone stays paired), installs the sudoers snippet (validated by `visudo -c`), drops the systemd unit, health-checks via `curl 127.0.0.1:8088/healthz`, and sets up Caddy. Refuses to silently rewrite the unit if `APP_DIR`/`REPO_DIR` differ from `/opt/panel{,/repo}`.
 
 ### Android (`android/`)
 
@@ -93,7 +100,7 @@ grep -RIn --exclude-dir=.git -E 'shell=True|os\.system|eval\(|exec\(' server/ an
 
 Currently zero matches outside the `NEVER uses shell=True` docstring in `server/executor.py` and one test function name (`test_rewrite_command_prepends_docker_exec`).
 
-1. `shell=False` everywhere in `server/executor.py`. No `os.system`, no `eval`, no `exec(<string>)`.
+1. `shell=False` everywhere in `server/executor.py`. No `os.system`, no `eval`, no `exec(<string>)`. The SSH-wrap path also keeps `shell=False` — the SSH call IS the argv (a list), not a string-to-shell. The remote shell parses the tail (`KEY=VAL cd <cwd> && <argv>`) on the host side, but the panel side never invokes a shell.
 2. `argv` is always a list from the server-owned whitelist — never built from request data.
 3. HMAC signature verification is constant-time (`hmac.compare_digest`).
 4. The nonce store rejects replays within TTL.
@@ -103,6 +110,13 @@ Currently zero matches outside the `NEVER uses shell=True` docstring in `server/
 
 - Wire protocol details → `server/signer.py` + `server/app.py::hook`.
 - Threat model → `README.md` § "Threat model" + § "The four things that keep this from becoming an RCE".
-- Deployment → `deploy/README.md` (bare metal) or `deploy/docker/README.md` (Docker; includes a security checklist).
+- Deployment → `deploy/README.md` (bare metal) or `deploy/docker/README.md` (Docker; includes a security checklist + "Using SSH-wrap mode" section).
+- Fresh-host bare-metal install → `server/systemd/install.sh` (idempotent).
+- Migrating off docker-compose → `migrate-to-bare-metal.sh` (one-shot, idempotent in Phase 1 only).
+- SSH-wrap setup (keypair, `command=` pin, `known_hosts`) → `deploy/docker/README.md` § "Using SSH-wrap mode". Implementation: `server/executor.py::_wrap_for_ssh` + per-entry `SshTarget` in `server/whitelist.py`.
 - Adding a command → `README.md` § "Add a new command" (whitelist + sudoers + SIGHUP reload).
-- Audit events → `README.md` § "Reading the audit log" + `server/audit.py`.
+- Audit events → `README.md` § "Reading the audit log" + `server/audit.py`. The `exec.start` / `exec.done` events carry `transport: "local"|"ssh"` and `ssh_target: "user@host"` (or `null`).
+
+### What does and doesn't hot-reload on SIGHUP
+
+SIGHUP re-reads the whitelist only. Bumping `PANEL_RATE_CAPACITY` / `PANEL_RATE_REFILL_PER_SEC` (or any other `Settings` field) requires a full `systemctl restart remote-panel` — the rate-limit token bucket is wired at startup.

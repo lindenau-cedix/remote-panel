@@ -151,6 +151,135 @@ it into `docker exec panel-host <your argv>`. The whitelist
 validator runs against the rewritten form, so any malformed rewrite
 crashes the container loudly at boot rather than silently at runtime.
 
+## Using SSH-wrap mode (alternative to the docker-exec sidecar)
+
+The default deployment runs each whitelisted command inside the
+`panel-host` sidecar via `docker exec`. That works for commands whose
+dependencies are bind-mounted into the sidecar (e.g. systemctl,
+sudoers), but it can't reach arbitrary host state — files outside
+the bind-mount list, host-resident credentials, services only the
+host can talk to. SSH-wrap mode replaces `docker exec panel-host`
+with a direct `ssh user@host -- argv` call from the panel container
+to the host's sshd, with the exact argv pinned on the host side by
+an `authorized_keys` `command=` directive.
+
+Use SSH-wrap mode when:
+- A command needs to read files outside what `panel-host` mounts
+  (e.g. `/etc/<service>` credentials on the host).
+- You want the host's regular filesystem layout (no bind-mount
+  bookkeeping in compose).
+- You don't need the docker-exec privilege model (you're not using
+  the sidecar's sudoers + caps).
+
+Use the default docker-exec mode when:
+- The command's only privilege is `systemctl` / sudoers-based —
+  the sidecar is the simpler setup.
+- You don't want SSH keypairs to manage.
+
+### Per-command SSH key generation
+
+Once per whitelist entry that opts into SSH-wrap, run on the host:
+
+```bash
+# 1. Generate an ed25519 keypair with no passphrase (the panel process
+#    can't type one, and BatchMode=yes means ssh will fail rather than
+#    prompt).
+sudo install -d -m 0755 /etc/panel/ssh
+sudo ssh-keygen -t ed25519 -N '' -C 'panel:<command_id>' \
+    -f /etc/panel/ssh/<command_id>.ed25519
+sudo chmod 0600 /etc/panel/ssh/<command_id>.ed25519
+sudo chmod 0644 /etc/panel/ssh/<command_id>.ed25519.pub
+
+# 2. Authorize the public key on the host with command= pinned to the
+#    EXACT whitelist argv. The host's sshd ignores whatever argv the
+#    client passes and runs only what's pinned here.
+sudo -u root tee -a /root/.ssh/authorized_keys >/dev/null <<EOF
+command="<argv[0]> <argv[1]> ... <argv[-1]>",no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty,no-user-rc $(cat /etc/panel/ssh/<command_id>.ed25519.pub)
+EOF
+sudo chmod 0600 /root/.ssh/authorized_keys
+
+# 3. Populate known_hosts for the loopback connection. Run this AFTER
+#    the host's host key is stable (it usually is).
+sudo ssh-keyscan -t ed25519 localhost 2>/dev/null \
+    > /etc/panel/ssh/known_hosts
+sudo chmod 0644 /etc/panel/ssh/known_hosts
+```
+
+The `command=` pin must match the whitelist argv **byte-for-byte**.
+A wrong pin means sshd will return exit 1 with stderr like
+`forced-command: bad command "...something else..."` — that's the
+signal that the whitelist and authorized_keys are out of sync.
+
+### Whitelist entry shape
+
+Add an `ssh` block to the relevant whitelist entry:
+
+```json
+{
+  "id": "sim24-bot",
+  "name": "Bock datavolume",
+  "description": "Refresh sim24 unlimited data usage.",
+  "argv": ["/usr/local/bin/sim24", "book"],
+  "cwd": null,
+  "env": {},
+  "timeout_seconds": 120,
+  "ssh": {
+    "host": "localhost",
+    "user": "root",
+    "key_path": "/etc/panel/ssh/sim24-bot.ed25519"
+  }
+}
+```
+
+The `ssh` block is optional — entries without it run via the legacy
+`docker exec panel-host` path even when SSH-wrap env vars are set.
+The `host`/`user`/`key_path` fields in the entry override the global
+`PANEL_SSH_*` env vars per-command.
+
+### Global configuration (default SSH target)
+
+If most entries should share a single SSH target, set the global
+env vars in `deploy/docker/.env`:
+
+```bash
+PANEL_SSH_TARGET_HOST=localhost
+PANEL_SSH_TARGET_USER=root
+PANEL_SSH_KEY_PATH=/etc/panel/ssh/sim24-bot.ed25519
+```
+
+Leave all three empty to run in legacy mode (no SSH wrap at all).
+
+### Verify the SSH path works
+
+After `make docker-up` with the env vars set:
+
+```bash
+# 1. Confirm the panel container has the SSH client and can reach the
+#    loopback.
+docker exec remote-panel ssh -V
+
+# 2. Trigger a hook and check the audit log for transport: ssh.
+docker exec remote-panel tail -n 5 /var/lib/panel/audit/audit.jsonl | jq .
+
+# Expected (with command_id=sim24-bot):
+# {"event":"exec.start","command_id":"sim24-bot",
+#  "transport":"ssh","ssh_target":"root@localhost",...}
+# {"event":"exec.done","command_id":"sim24-bot",
+#  "transport":"ssh","ssh_target":"root@localhost","exit_code":0,...}
+```
+
+### Rollback
+
+Remove the `ssh` block from the whitelist entry and reload:
+
+```bash
+make docker-reload-whitelist
+```
+
+The entry reverts to the docker-exec path. No image rebuild needed.
+The SSH key files can stay on the host until you remove them
+manually (they're inert without an `ssh` block pointing at them).
+
 ## Uninstall
 
 ```bash
@@ -171,6 +300,9 @@ docker image rm remote-panel:dev remote-panel-host:dev caddy:2
 | `permission denied` on `docker.sock` | panel container not in docker group | Compose handles this via the socket's existing perms; ensure your user is in `docker` group on host |
 | sudo says "a password is required" | sudoers file out of sync with whitelist | Edit `server/sudoers.d/panel.example`, rebuild sidecar |
 | `/var/log/audit.log` missing on host | auditd not running | Install auditd; sudo logs will land in syslog instead |
+| Hook with `ssh:` block fails with "Permission denied (publickey)" | Key mount missing, key mode wrong, or sshd config | Verify `/etc/panel/ssh` exists on the host with mode 0755; private key mode 0600; `PubkeyAuthentication yes` in `/etc/ssh/sshd_config`; reload sshd after config changes |
+| Hook with `ssh:` block fails with "forced-command: bad command ..." | Whitelist argv and `command=` pin disagree | Update the `command=` pin in `authorized_keys` to exactly match the whitelist entry's argv |
+| Hook with `ssh:` block fails with "Host key verification failed" | known_hosts missing or stale | Re-run `ssh-keyscan -t ed25519 localhost > /etc/panel/ssh/known_hosts`; ensure the panel container has the file mounted read-only |
 
 ## Security checklist
 

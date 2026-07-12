@@ -44,6 +44,14 @@ echo "PANEL_SECRET=$SECRET" | sudo tee /etc/panel/env > /dev/null
 echo "stored PANEL_SECRET=$SECRET in /etc/panel/env — copy it to your phone now"
 ```
 
+Note: the systemd unit shipped under `server/systemd/remote-panel.service`
+already encodes `PANEL_WHITELIST_PATH=/opt/panel/whitelist.json` and
+`PANEL_AUDIT_PATH=/opt/panel/audit.jsonl` as `Environment=` directives, so
+the panel reads the whitelist from `/opt/panel/whitelist.json` (not the
+default `/opt/panel/repo/server/whitelist.json` it would otherwise pick up
+from `Settings` defaults). If you copy the unit to a non-standard path,
+update those three lines in `Environment=` to match.
+
 ## Drop in the sudoers snippet
 
 ```bash

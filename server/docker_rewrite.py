@@ -74,7 +74,15 @@ def rewrite_command(entry: dict, *, host_container: str, docker_bin: str) -> dic
     """Rewrite one command entry's argv in-place (returns a new dict).
 
     Preserves id, name, description, cwd, env, timeout_seconds verbatim.
+    Pass-through for entries with an `ssh` block — those use the
+    SSH-wrap path (Plan B) and must NOT be wrapped in `docker exec`.
     """
+    # Pass-through when the entry opts into SSH-wrap mode. The executor
+    # wraps the argv at call time; the docker rewriter must not also
+    # prepend `docker exec`, since that would result in `docker exec
+    # panel-host ssh -l user host -- argv` which is meaningless.
+    if isinstance(entry.get("ssh"), dict):
+        return dict(entry)
     argv = entry.get("argv")
     if not isinstance(argv, list) or not argv:
         raise ValueError(f"command {entry.get('id')!r}: argv must be a non-empty list")

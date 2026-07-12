@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -32,8 +33,21 @@ class WhitelistError(ValueError):
     """Raised when the whitelist file is invalid or a command is not whitelisted."""
 
 
+@dataclass(frozen=True)
+class SshTarget:
+    """Per-command SSH target. Overrides global Settings SSH fields.
+
+    The executor wraps the argv in `ssh -i key -l user host -- <argv>`
+    when this is set. Field semantics match the `ssh` block in the
+    whitelist JSON.
+    """
+    host: str
+    user: str
+    key_path: str  # absolute path to the private key inside the container
+
+
 class CommandSpec:
-    __slots__ = ("id", "name", "description", "argv", "cwd", "env", "timeout_seconds")
+    __slots__ = ("id", "name", "description", "argv", "cwd", "env", "timeout_seconds", "ssh")
 
     def __init__(
         self,
@@ -44,6 +58,7 @@ class CommandSpec:
         cwd: Optional[str],
         env: dict[str, str],
         timeout_seconds: int,
+        ssh: Optional[SshTarget] = None,
     ) -> None:
         self.id = id
         self.name = name
@@ -52,9 +67,10 @@ class CommandSpec:
         self.cwd = cwd
         self.env = env
         self.timeout_seconds = timeout_seconds
+        self.ssh = ssh
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "id": self.id,
             "name": self.name,
             "description": self.description,
@@ -63,6 +79,13 @@ class CommandSpec:
             "env": dict(self.env),
             "timeout_seconds": self.timeout_seconds,
         }
+        if self.ssh is not None:
+            d["ssh"] = {
+                "host": self.ssh.host,
+                "user": self.ssh.user,
+                "key_path": self.ssh.key_path,
+            }
+        return d
 
     def public_dict(self) -> dict:
         """What /buttons returns — never the argv."""
@@ -101,6 +124,44 @@ def _validate_argv0(argv0: str) -> None:
     )
 
 
+# Permissive host pattern. Covers hostnames, IPv4, IPv6 in brackets,
+# and trailing :port. Does NOT cover ssh-style user@host or any
+# quoting — those are not allowed: user goes in `ssh.user` and host
+# is just the host.
+_SSH_HOST_RE = re.compile(r"^\[?[A-Za-z0-9.\-:]+\]?$")
+
+
+def _validate_ssh(raw, cid: str) -> Optional[SshTarget]:
+    """Validate the optional `ssh` block in a whitelist entry.
+
+    Returns None if absent or null. Raises WhitelistError on any
+    structural problem so a bad entry fails the whole whitelist load
+    (same loud-failure behavior as the rest of the validator).
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise WhitelistError(f"{cid}: 'ssh' must be an object or null")
+    for fld in ("host", "user", "key_path"):
+        v = raw.get(fld)
+        if not isinstance(v, str) or not v:
+            raise WhitelistError(
+                f"{cid}: ssh.{fld} must be a non-empty string"
+            )
+    key_path = raw["key_path"]
+    if not os.path.isabs(key_path):
+        raise WhitelistError(f"{cid}: ssh.key_path must be an absolute path")
+    if not _SSH_HOST_RE.match(raw["host"]):
+        raise WhitelistError(
+            f"{cid}: ssh.host={raw['host']!r} has unexpected characters"
+        )
+    return SshTarget(
+        host=raw["host"],
+        user=raw["user"],
+        key_path=key_path,
+    )
+
+
 def _validate_one(raw: dict) -> CommandSpec:
     if not isinstance(raw, dict):
         raise WhitelistError(f"command entry must be an object, got {type(raw).__name__}")
@@ -129,6 +190,7 @@ def _validate_one(raw: dict) -> CommandSpec:
     timeout = raw.get("timeout_seconds", 30)
     if not isinstance(timeout, int) or timeout <= 0:
         raise WhitelistError(f"{cid}: 'timeout_seconds' must be a positive integer")
+    ssh = _validate_ssh(raw.get("ssh"), cid)
     return CommandSpec(
         id=cid,
         name=raw["name"],
@@ -137,6 +199,7 @@ def _validate_one(raw: dict) -> CommandSpec:
         cwd=cwd,
         env=dict(env),
         timeout_seconds=timeout,
+        ssh=ssh,
     )
 
 
