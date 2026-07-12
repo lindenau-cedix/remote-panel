@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     whitelist_path: Path = Path(__file__).parent / "whitelist.json"
     audit_path: Path = Path(__file__).parent / "audit.jsonl"
     bind_host: str = "127.0.0.1"
-    bind_port: int = 8000
+    bind_port: int = 8088
     nonce_ttl_seconds: int = 600
     rate_capacity: int = 30
     rate_refill_per_sec: float = 0.5

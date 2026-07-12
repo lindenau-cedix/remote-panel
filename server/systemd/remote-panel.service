@@ -12,7 +12,7 @@ Environment=PANEL_SECRET=
 # Auto-load secret from a root-readable file (`sudo chmod 640` after creation).
 EnvironmentFile=-/etc/panel/env
 ExecStart=/opt/panel/.venv/bin/uvicorn server.app:app \
-    --host 127.0.0.1 --port 8000 --log-level info
+    --host 127.0.0.1 --port 8088 --log-level info
 Restart=on-failure
 RestartSec=3s
 NoNewPrivileges=true

@@ -77,11 +77,13 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - panel-net
+    ports:
+      - 8088:8088
     depends_on:
       panel-host:
         condition: service_started
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).status == 200 else 1)"]
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8088/healthz', timeout=3).status == 200 else 1)"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -129,38 +131,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
-
-  caddy:
-    image: caddy:2
-    container_name: remote-panel-caddy
-    restart: unless-stopped
-    cap_drop: [ALL]
-    cap_add:
-      - CAP_NET_BIND_SERVICE
-      - CAP_CHOWN
-      - CAP_DAC_OVERRIDE
-      - CAP_FOWNER
-      - CAP_MKNOD
-      - CAP_SETGID
-      - CAP_SETUID
-      - CAP_SETFCAP
-      - CAP_SYS_CHROOT
-    security_opt:
-      - no-new-privileges:true
-    ports:
-      - "80:80"
-      - "443:443"
-    environment:
-      PANEL_HOSTNAME: ${PANEL_HOSTNAME:?PANEL_HOSTNAME must be set in .env}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    networks:
-      - panel-net
-    depends_on:
-      panel:
-        condition: service_healthy
 
 networks:
   panel-net:

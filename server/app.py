@@ -215,7 +215,7 @@ def main() -> None:
     uvicorn.run(
         "server.app:app",
         host="127.0.0.1",
-        port=8000,
+        port=8088,
         log_level="info",
         factory=False,
     )

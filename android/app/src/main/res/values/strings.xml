@@ -15,4 +15,11 @@
     <string name="error_network">Network error</string>
     <string name="error_invalid_url">Server URL must start with https://, or http://10.0.2.2 for the emulator.</string>
     <string name="error_secret_length">Secret must be at least 16 characters.</string>
+    <string name="panel_manage_favorites">Manage favorites</string>
+    <string name="favorites_title">Manage favorites</string>
+    <string name="favorites_subtitle">Pick the commands you want to see in the main panel.</string>
+    <string name="panel_empty_title">No favorites yet</string>
+    <string name="panel_empty_button">Manage commands</string>
+    <string name="favorites_back">Back</string>
+    <string name="favorites_no_commands">No commands available</string>
 </resources>

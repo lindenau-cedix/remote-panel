@@ -7,12 +7,6 @@
 
 {$PANEL_HOSTNAME} {
     encode zstd gzip
-    reverse_proxy panel:8000 {
-        # Pass the real client IP so the rate limiter keys correctly.
-        # Caddy adds X-Forwarded-For for us; panel reads the leftmost
-        # hop. See server/app.py::_client_ip.
-        header_up X-Forwarded-For {remote_host}
-    }
 
     # Cap request bodies. /hook is JSON < 1 KB; 4 KB leaves headroom
     # for /buttons metadata but blocks large-body DoS.
@@ -20,22 +14,33 @@
         max_size 4KB
     }
 
-    # Restrict to the four endpoints that exist. Anything else gets
-    # a flat 404 (matches the bare-metal Caddyfile).
-    @post_hook    method POST  path /hook
-    @get_health   method GET   path /healthz
-    @get_buttons  method GET   path /buttons
-    @blocked      not method   POST  path /hook
-                    not method   GET   path /healthz
-                    not method   GET   path /buttons
-    handle_response @blocked {
-        respond "404 not found" 404
-    }
+    # Restrict to the three endpoints that exist. Anything else gets
+    # a flat 404 from Caddy itself and never reaches FastAPI.
+    # Caddy v2 doesn't have a `not` directive — instead we list the
+    # allowed shapes in mutually-exclusive handle blocks and catch
+    # everything else in the final, matcher-less handle.
+    @post_hook   method POST path /hook
+    @get_health  method GET  path /healthz
+    @get_buttons method GET  path /buttons
 
     log {
         output file /data/caddy.log {
             roll_size 10mb
             roll_keep 5
         }
+    }
+
+    route {
+        # reverse_proxy reads X-Forwarded-For automatically and sets
+        # X-Real-IP / Forwarded headers as needed; no header_up needed
+        # for the rate limiter to key on the real client IP.
+        # See server/app.py::_client_ip.
+        reverse_proxy @post_hook   panel:8088
+        reverse_proxy @get_health  panel:8088
+        reverse_proxy @get_buttons panel:8088
+
+        # Catch-all: anything that didn't match the three allowed
+        # shapes gets a flat 404 at the edge.
+        respond "404 not found" 404
     }
 }

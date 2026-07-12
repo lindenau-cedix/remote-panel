@@ -125,7 +125,7 @@ minSdk 26, targetSdk 34.)
 ## First-run in-app setup
 
 1. Open "Remote Panel" — the **Setup** screen appears.
-2. Server URL: `https://panel.example.com` (or `http://10.0.2.2:8000` for
+2. Server URL: `https://panel.example.com` (or `http://10.0.2.2:8088` for
    emulator).
 3. Shared secret: paste the hex string from `openssl rand -hex 32`.
 4. Tap **Save**. You'll land on the panel.

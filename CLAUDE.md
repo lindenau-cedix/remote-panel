@@ -12,7 +12,7 @@ The Makefile is the entry point for everything. Common targets:
 
 ```bash
 make test                            # server tests (pytest, 61 tests)
-make run-server                      # uvicorn on 127.0.0.1:8000 (PANEL_SECRET must be set)
+make run-server                      # uvicorn on 127.0.0.1:8088 (PANEL_SECRET must be set)
 make smoke                           # curl /healthz on the running server
 make build-apk                       # assemble debug APK (needs JDK 17 + Android SDK)
 make docker-up                       # build + start the 3-service compose stack
@@ -65,13 +65,24 @@ The argv rewriter: `server/docker_entrypoint.sh` reads `whitelist.json` (bind-mo
 
 Hot reload under Docker: `make docker-reload-whitelist` sends SIGHUP to the panel container. Same in-process reload as the bare-metal path.
 
+The Caddyfiles (`deploy/docker/Caddyfile` + `deploy/Caddyfile.example`) use Caddy v2 only. The earlier v1-style `@blocked not method ...` negation was rewritten as a `route` block with mutually-exclusive `handle` arms for the three allowed endpoints (`POST /hook`, `GET /healthz`, `GET /buttons`) plus a matcher-less catch-all `respond "404 not found" 404`. Both files are validated by `caddy adapt`; both upstreams are `panel:8088` (docker) / `127.0.0.1:8088` (bare metal). The default port for the panel is **8088** (not 8000) — set via `PANEL_BIND_PORT` in `Dockerfile`, `deploy/docker/docker-compose.yml` port mapping `8088:8088`, and the systemd unit's `--port 8088`.
+
 ### Bare-metal deployment (`deploy/` + `server/systemd/` + `server/sudoers.d/`)
 
 Systemd unit `server/systemd/remote-panel.service` hardens the process with `ProtectSystem=strict`, `NoNewPrivileges`, `PrivateTmp`, `PrivateDevices`, `RestrictNamespaces`, `MemoryDenyWriteExecute`, etc. The sudoers snippet `server/sudoers.d/panel.example` lists the exact commands the panel user can run with `sudo -n` — wildcards are intentionally avoided. Caddy reverse proxy in `deploy/Caddyfile.example`. Secret lives in `/etc/panel/env` (mode 0640, owner `root:panel`).
 
 ### Android (`android/`)
 
-Kotlin + Jetpack Compose. AGP 8.5.2, Kotlin 1.9.24, Compose BOM 2024.06.00, minSdk 26, targetSdk 34. The shared secret is stored in `EncryptedSharedPreferences`. No analytics/crashlytics/telemetry — see `AndroidManifest.xml` and the source. Button metadata lives in `android/app/src/main/assets/buttons.json` (until `/buttons` refresh lands).
+Kotlin + Jetpack Compose. AGP 8.5.2, Kotlin 1.9.24, Compose BOM 2024.06.00, minSdk 26, targetSdk 34. No analytics/crashlytics/telemetry — see `AndroidManifest.xml` and the source.
+
+Data layer under `data/`:
+
+- `ButtonConfig.kt` — phone-visible metadata (`id`, `name`, `description` only; argv never leaves the server).
+- `ButtonRepository.kt` — `suspend fun loadButtons(): List<ButtonConfig>`. Currently reads the `assets/buttons.json` stub. The repository API is the seam where a future `GET /buttons` (already implemented server-side at `app.py::buttons`) drops in — one method body, no caller changes.
+- `SecretStore.kt` / `SettingsStore.kt` — `EncryptedSharedPreferences` in file `panel_secure_prefs` for server URL + shared secret. `SecretStore.clear()` wipes the whole file (intentional: resets the connection).
+- `FavoritesStore.kt` — phone-local favorites. Separate `EncryptedSharedPreferences` file (`favorites_secure_prefs`) so `SecretStore.clear()` cannot wipe favorites. Exposes `favorites: StateFlow<Set<String>>` plus `toggle` / `setAll`. Pure-Kotlin `FavoritesLogic` helper kept in the same file for JVM unit tests.
+
+UI under `ui/`: `SetupScreen` (first-run), `PanelScreen` (cards → confirmation dialog → `PanelApi.runCommand`), `FavoritesScreen` (manage favorites), `EmptyFavoritesState`, `ResultDialog`. `MainActivity` holds a `showFavorites: Boolean` flag and swaps between `PanelScreen` and `FavoritesScreen` — no nav-compose dep. The TopAppBar has a kebab (manage favorites) and the gear (existing clear-settings path). When favorites is empty, `PanelScreen` renders `EmptyFavoritesState` instead of a `LazyColumn`.
 
 ## Hard invariants
 
@@ -81,7 +92,7 @@ These are non-negotiable; breaking them turns this into an RCE. The repo has a m
 grep -RIn --exclude-dir=.git -E 'shell=True|os\.system|eval\(|exec\(' server/ android/
 ```
 
-Currently zero matches outside a docstring that says `NEVER uses shell=True`.
+Currently zero matches outside the `NEVER uses shell=True` docstring in `server/executor.py` and one test function name (`test_rewrite_command_prepends_docker_exec`).
 
 1. `shell=False` everywhere in `server/executor.py`. No `os.system`, no `eval`, no `exec(<string>)`.
 2. `argv` is always a list from the server-owned whitelist — never built from request data.

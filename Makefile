@@ -2,7 +2,7 @@
 #
 # Usage:
 #   make test        — run server tests (pytest)
-#   make run-server  — run webhook server locally on 127.0.0.1:8000
+#   make run-server  — run webhook server locally on 127.0.0.1:8088
 #   make build-apk   — assemble the Android debug APK
 #   make smoke       — smoke-test /healthz against a running server
 #   make all         — test + smoke
@@ -29,10 +29,10 @@ test: venv
 	cd $(SERVER) && PYTHONPATH=.. ../$(VENV_BIN)/pytest -q
 
 run-server:
-	$(VENV_BIN)/uvicorn server.app:app --host 127.0.0.1 --port 8000
+	$(VENV_BIN)/uvicorn server.app:app --host 127.0.0.1 --port 8088
 
 smoke:
-	curl -sf http://127.0.0.1:8000/healthz && echo
+	curl -sf http://127.0.0.1:8088/healthz && echo
 
 build-apk:
 	cd $(ANDROID) && ./gradlew assembleDebug

@@ -1,22 +1,13 @@
 {
   "commands": [
     {
-      "id": "restart-nginx",
-      "name": "Restart Nginx",
-      "description": "Reload the Nginx web server on the host",
-      "argv": ["sudo", "-n", "systemctl", "restart", "nginx"],
+      "id": "sim24-bot",
+      "name": "Bock datavolume",
+      "description": "Refreshes sim24 unlimited data usage.",
+      "argv": ["/usr/local/bin/sim24", "book"],
       "cwd": null,
       "env": {},
-      "timeout_seconds": 10
-    },
-    {
-      "id": "tail-error-log",
-      "name": "Show recent error log",
-      "description": "Last 50 lines of /var/log/nginx/error.log on the host",
-      "argv": ["/usr/bin/tail", "-n", "50", "/var/log/nginx/error.log"],
-      "cwd": null,
-      "env": {},
-      "timeout_seconds": 5
+      "timeout_seconds": 120
     }
   ]
 }

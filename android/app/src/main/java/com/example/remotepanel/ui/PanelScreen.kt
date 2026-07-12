@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -24,8 +25,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.remotepanel.R
 import com.example.remotepanel.data.ButtonConfig
 import com.example.remotepanel.network.ApiResult
 
@@ -40,12 +43,19 @@ fun PanelScreen(
     onCancelConfirm: () -> Unit,
     onDismissResult: () -> Unit,
     onSettingsTapped: () -> Unit,
+    onManageFavorites: () -> Unit,
 ) {
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Remote Panel") },
                 actions = {
+                    IconButton(onClick = onManageFavorites) {
+                        Icon(
+                            Icons.Filled.MoreVert,
+                            contentDescription = stringResource(R.string.panel_manage_favorites),
+                        )
+                    }
                     IconButton(onClick = onSettingsTapped) {
                         Icon(Icons.Filled.Settings, contentDescription = "Settings")
                     }
@@ -61,9 +71,13 @@ fun PanelScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Spacer(Modifier.height(4.dp))
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(items = buttons, key = { it.id }) { btn ->
-                    ButtonCard(btn, onClick = { onButtonTapped(btn) })
+            if (buttons.isEmpty()) {
+                EmptyFavoritesState(onAddCommands = onManageFavorites)
+            } else {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(items = buttons, key = { it.id }) { btn ->
+                        ButtonCard(btn, onClick = { onButtonTapped(btn) })
+                    }
                 }
             }
         }

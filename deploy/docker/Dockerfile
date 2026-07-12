@@ -40,7 +40,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PANEL_WHITELIST_PATH=/etc/panel/whitelist.json \
     PANEL_AUDIT_PATH=/var/lib/panel/audit/audit.jsonl \
     PANEL_BIND_HOST=0.0.0.0 \
-    PANEL_BIND_PORT=8000
+    PANEL_BIND_PORT=8088
 
 # Only install the docker CLI; no sudo, no systemctl, no shells beyond
 # what the python:3.12-slim base already carries. The CLI lets the
@@ -73,14 +73,14 @@ VOLUME ["/var/lib/panel/audit"]
 # the CMD, so the long-running server process still has no privileges.
 WORKDIR /opt/panel
 
-EXPOSE 8000
+EXPOSE 8088
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD ["python", "-c", "import urllib.request,sys; \
-sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).status == 200 else 1)"]
+sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8088/healthz', timeout=3).status == 200 else 1)"]
 
 # tini reaps zombies and forwards signals (notably SIGHUP for whitelist
 # reload). The argv rewriter runs first so the whitelist is rewritten
 # before uvicorn starts serving.
 ENTRYPOINT ["tini", "--", "/opt/panel/server/docker_entrypoint.sh"]
-CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info"]
+CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8088", "--log-level", "info"]
