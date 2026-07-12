@@ -7,10 +7,12 @@
 # 3. Validate the rewritten whitelist using the same loader the
 #    server uses at runtime — fail loudly if the rewrite produced
 #    something the server will later reject.
-# 4. exec the CMD passed by the Dockerfile (uvicorn ...).
+# 4. Drop privileges (root -> uid 999) and exec the CMD passed by
+#    the Dockerfile (uvicorn ...).
 #
 # SIGHUP from `docker kill -s hup panel` triggers whitelist reload
-# (handled in server.app:lifespan).
+# (handled in server.app:lifespan). tini forwards the signal to
+# uvicorn because we're already exec'd into it via gosu.
 
 set -eu
 
@@ -19,13 +21,13 @@ DST="${PANEL_WHITELIST_PATH:-/etc/panel/whitelist.json}"
 HOST_CONTAINER="${PANEL_HOST_CONTAINER:-panel-host}"
 DOCKER_BIN="${PANEL_DOCKER_BIN:-/usr/bin/docker}"
 
-# DST lives on a named volume that is root-owned on first creation,
-# and we run as uid 999. Make the destination directory writable by
-# the panel user so the rewriter's output_file call succeeds. Safe to
-# run on subsequent boots (chown is a no-op when ownership matches).
+# /etc/panel is a freshly-mounted named volume on first boot — root-
+# owned by default. We run as root here so the chown actually takes
+# effect (cap_drop: ALL in compose strips CAP_CHOWN from the long-
+# running uvicorn process, but the entrypoint runs unconstrained).
 DST_DIR="$(dirname "$DST")"
 if [ -d "$DST_DIR" ]; then
-    chown panel:panel "$DST_DIR" 2>/dev/null || true
+    chown panel:panel "$DST_DIR"
 fi
 
 if [ ! -f "$SRC" ]; then
@@ -62,5 +64,8 @@ except Exception as e:
 print(f"[entrypoint] whitelist OK: {len(list(wl.ids()))} commands")
 PY
 
+# Drop to the panel user before exec'ing uvicorn. gosu is the standard
+# Debian privilege-drop tool: it does setuid only and forks, so PID 1
+# (tini) keeps signal-forwarding semantics intact.
 echo "[entrypoint] starting $*"
-exec "$@"
+exec gosu panel "$@"

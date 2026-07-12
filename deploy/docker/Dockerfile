@@ -45,9 +45,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Only install the docker CLI; no sudo, no systemctl, no shells beyond
 # what the python:3.12-slim base already carries. The CLI lets the
 # FastAPI executor reach the privileged `panel-host` sidecar via
-# `docker exec panel-host <argv...>`.
+# `docker exec panel-host <argv...>`. gosu is the privilege-drop tool
+# the entrypoint uses to switch from root (default) to the panel user
+# before launching uvicorn.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends docker.io tini \
+    && apt-get install -y --no-install-recommends docker.io tini gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root user; uid 999 is conventional for "system" service accounts.
@@ -65,7 +67,10 @@ RUN mkdir -p /var/lib/panel/audit \
     && chown -R panel:panel /var/lib/panel/audit
 VOLUME ["/var/lib/panel/audit"]
 
-USER panel
+# Stay as root through the entrypoint so the rewriter can chown the
+# freshly-mounted /etc/panel volume to panel:panel before uvicorn runs.
+# The entrypoint uses gosu to drop to uid 999 just before exec'ing
+# the CMD, so the long-running server process still has no privileges.
 WORKDIR /opt/panel
 
 EXPOSE 8000
