@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -29,31 +29,32 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.remotepanel.R
-import com.example.remotepanel.data.ButtonConfig
+import com.example.remotepanel.data.UserCommand
 import com.example.remotepanel.network.ApiResult
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PanelScreen(
-    buttons: List<ButtonConfig>,
-    pendingConfirmation: ButtonConfig?,
+    commands: List<UserCommand>,
+    pendingConfirmation: UserCommand?,
     lastResult: ApiResult?,
-    onButtonTapped: (ButtonConfig) -> Unit,
+    onCommandTapped: (UserCommand) -> Unit,
     onConfirm: () -> Unit,
     onCancelConfirm: () -> Unit,
     onDismissResult: () -> Unit,
     onSettingsTapped: () -> Unit,
-    onManageFavorites: () -> Unit,
+    onManageCommands: () -> Unit,
+    onAddCommand: () -> Unit,
 ) {
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Remote Panel") },
                 actions = {
-                    IconButton(onClick = onManageFavorites) {
+                    IconButton(onClick = onManageCommands) {
                         Icon(
-                            Icons.Filled.MoreVert,
-                            contentDescription = stringResource(R.string.panel_manage_favorites),
+                            Icons.Filled.List,
+                            contentDescription = stringResource(R.string.panel_manage_commands),
                         )
                     }
                     IconButton(onClick = onSettingsTapped) {
@@ -71,12 +72,12 @@ fun PanelScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Spacer(Modifier.height(4.dp))
-            if (buttons.isEmpty()) {
-                EmptyFavoritesState(onAddCommands = onManageFavorites)
+            if (commands.isEmpty()) {
+                EmptyCommandsState(onAddCommand = onAddCommand)
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(items = buttons, key = { it.id }) { btn ->
-                        ButtonCard(btn, onClick = { onButtonTapped(btn) })
+                    items(items = commands, key = { it.id }) { cmd ->
+                        CommandCard(cmd, onClick = { onCommandTapped(cmd) })
                     }
                 }
             }
@@ -114,7 +115,7 @@ fun PanelScreen(
 }
 
 @Composable
-private fun ButtonCard(btn: ButtonConfig, onClick: () -> Unit) {
+private fun CommandCard(cmd: UserCommand, onClick: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.elevatedCardColors(),
@@ -122,9 +123,11 @@ private fun ButtonCard(btn: ButtonConfig, onClick: () -> Unit) {
         onClick = onClick,
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(btn.name, style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(4.dp))
-            Text(btn.description, style = MaterialTheme.typography.bodyMedium)
+            Text(cmd.name, style = MaterialTheme.typography.titleMedium)
+            if (cmd.description.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text(cmd.description, style = MaterialTheme.typography.bodyMedium)
+            }
         }
     }
 }

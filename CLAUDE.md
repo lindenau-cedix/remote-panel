@@ -77,12 +77,11 @@ Kotlin + Jetpack Compose. AGP 8.5.2, Kotlin 1.9.24, Compose BOM 2024.06.00, minS
 
 Data layer under `data/`:
 
-- `ButtonConfig.kt` — phone-visible metadata (`id`, `name`, `description` only; argv never leaves the server).
-- `ButtonRepository.kt` — `suspend fun loadButtons(): List<ButtonConfig>`. Currently reads the `assets/buttons.json` stub. The repository API is the seam where a future `GET /buttons` (already implemented server-side at `app.py::buttons`) drops in — one method body, no caller changes.
-- `SecretStore.kt` / `SettingsStore.kt` — `EncryptedSharedPreferences` in file `panel_secure_prefs` for server URL + shared secret. `SecretStore.clear()` wipes the whole file (intentional: resets the connection).
-- `FavoritesStore.kt` — phone-local favorites. Separate `EncryptedSharedPreferences` file (`favorites_secure_prefs`) so `SecretStore.clear()` cannot wipe favorites. Exposes `favorites: StateFlow<Set<String>>` plus `toggle` / `setAll`. Pure-Kotlin `FavoritesLogic` helper kept in the same file for JVM unit tests.
+- `UserCommand.kt` — phone-visible metadata for user-authored commands (`id`, `name`, `description`). The id is what the phone sends at run time; argv never leaves the server.
+- `UserCommandsStore.kt` — `EncryptedSharedPreferences` in file `user_commands_secure_prefs`, single JSON-encoded `List<UserCommand>` under key `user_commands_json`. Pure-Kotlin `UserCommandLogic` helper in the same file (id-regex matching the server's `ID_PATTERN`, `append`, `removeById`) for JVM unit tests. Exposes `commands: StateFlow<List<UserCommand>>` plus `add` / `delete` / `list`. The user can author any id locally; the server rejects unknown ids at `/hook` time.
+- `SecretStore.kt` / `SettingsStore.kt` — `EncryptedSharedPreferences` in file `panel_secure_prefs` for server URL + shared secret. `SecretStore.clear()` wipes the whole file (intentional: resets the connection). The commands store is in a separate file so this `clear()` cannot destroy the user's authored list.
 
-UI under `ui/`: `SetupScreen` (first-run), `PanelScreen` (cards → confirmation dialog → `PanelApi.runCommand`), `FavoritesScreen` (manage favorites), `EmptyFavoritesState`, `ResultDialog`. `MainActivity` holds a `showFavorites: Boolean` flag and swaps between `PanelScreen` and `FavoritesScreen` — no nav-compose dep. The TopAppBar has a kebab (manage favorites) and the gear (existing clear-settings path). When favorites is empty, `PanelScreen` renders `EmptyFavoritesState` instead of a `LazyColumn`.
+UI under `ui/`: `SetupScreen` (first-run), `PanelScreen` (cards → confirmation dialog → `PanelApi.runCommand`), `ManageCommandsScreen` (list with delete + FAB → add dialog), `AddCommandDialog` (modal form with id/name/description fields and id-regex validation), `EmptyCommandsState`, `ResultDialog`. `MainActivity` holds two navigation flags — `showManage: Boolean` swaps between `PanelScreen` and `ManageCommandsScreen`, and `showAddDialog: Boolean` renders `AddCommandDialog` as a hoisted overlay that works from both screens (the empty-state CTA on `PanelScreen` and the FAB on `ManageCommandsScreen` both flip it). No nav-compose dep. The TopAppBar has a `List` icon (manage commands) and the gear (existing clear-settings path). When commands is empty, `PanelScreen` renders `EmptyCommandsState` instead of a `LazyColumn`.
 
 ## Hard invariants
 

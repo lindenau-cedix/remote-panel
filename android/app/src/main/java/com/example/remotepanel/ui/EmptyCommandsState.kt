@@ -17,11 +17,11 @@ import androidx.compose.ui.unit.dp
 import com.example.remotepanel.R
 
 /**
- * Shown by [PanelScreen] when the user has no favorites selected yet.
- * Single CTA routes to the manage screen so the user can opt in.
+ * Shown by [PanelScreen] when the user has not authored any commands yet.
+ * Single CTA opens the add-command dialog so the user can opt in.
  */
 @Composable
-fun EmptyFavoritesState(onAddCommands: () -> Unit) {
+fun EmptyCommandsState(onAddCommand: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.Center,
@@ -32,7 +32,7 @@ fun EmptyFavoritesState(onAddCommands: () -> Unit) {
             style = MaterialTheme.typography.titleMedium,
         )
         Spacer(Modifier.height(16.dp))
-        Button(onClick = onAddCommands) {
+        Button(onClick = onAddCommand) {
             Text(stringResource(R.string.panel_empty_button))
         }
     }

@@ -3,21 +3,20 @@ package com.example.remotepanel
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import com.example.remotepanel.data.ButtonConfig
-import com.example.remotepanel.data.ButtonRepository
-import com.example.remotepanel.data.FavoritesStore
 import com.example.remotepanel.data.SettingsStore
+import com.example.remotepanel.data.UserCommand
+import com.example.remotepanel.data.UserCommandsStore
 import com.example.remotepanel.network.ApiResult
 import com.example.remotepanel.network.PanelApi
 import com.example.remotepanel.security.SecretStore
-import com.example.remotepanel.ui.FavoritesScreen
+import com.example.remotepanel.ui.AddCommandDialog
+import com.example.remotepanel.ui.ManageCommandsScreen
 import com.example.remotepanel.ui.PanelScreen
 import com.example.remotepanel.ui.SetupScreen
 import com.example.remotepanel.ui.theme.RemotePanelTheme
@@ -30,12 +29,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val secretStore = SecretStore(applicationContext)
         val settings = SettingsStore(secretStore)
-        val buttons = ButtonRepository(applicationContext)
-        val favoritesStore = FavoritesStore(applicationContext)
+        val commandsStore = UserCommandsStore(applicationContext)
 
         setContent {
             RemotePanelTheme {
-                AppContent(settings, buttons, favoritesStore)
+                AppContent(settings, commandsStore)
             }
         }
     }
@@ -44,23 +42,15 @@ class MainActivity : ComponentActivity() {
 @androidx.compose.runtime.Composable
 private fun AppContent(
     settings: SettingsStore,
-    buttons: ButtonRepository,
-    favoritesStore: FavoritesStore,
+    commandsStore: UserCommandsStore,
 ) {
     var isSetup by remember { mutableStateOf(settings.isConfigured()) }
-    var buttonsState by remember { mutableStateOf<List<ButtonConfig>>(emptyList()) }
-    var pendingConfirmation by remember { mutableStateOf<ButtonConfig?>(null) }
+    var pendingConfirmation by remember { mutableStateOf<UserCommand?>(null) }
     var lastResult by remember { mutableStateOf<ApiResult?>(null) }
-    var showFavorites by remember { mutableStateOf(false) }
+    var showManage by remember { mutableStateOf(false) }
+    var showAddDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val favorites by favoritesStore.favorites.collectAsState()
-    val visibleButtons = remember(buttonsState, favorites) {
-        buttonsState.filter { it.id in favorites }
-    }
-
-    LaunchedEffect(Unit) {
-        buttonsState = buttons.loadButtons()
-    }
+    val commands by commandsStore.commands.collectAsState()
 
     if (!isSetup) {
         SetupScreen(
@@ -74,39 +64,53 @@ private fun AppContent(
         return
     }
 
-    if (showFavorites) {
-        FavoritesScreen(
-            allButtons = buttonsState,
-            favorites = favorites,
-            onToggle = { id -> scope.launch { favoritesStore.toggle(id) } },
-            onBack = { showFavorites = false },
+    if (showManage) {
+        ManageCommandsScreen(
+            commands = commands,
+            onAdd = { showAddDialog = true },
+            onDelete = { id -> scope.launch { commandsStore.delete(id) } },
+            onBack = { showManage = false },
         )
-        return
+    } else {
+        PanelScreen(
+            commands = commands,
+            pendingConfirmation = pendingConfirmation,
+            lastResult = lastResult,
+            onCommandTapped = { cmd -> pendingConfirmation = cmd },
+            onConfirm = {
+                val cmd = pendingConfirmation ?: return@PanelScreen
+                val nonce = newNonce()
+                val api = PanelApi(settings.serverUrl(), settings.secret())
+                pendingConfirmation = null
+                lastResult = null
+                scope.launch {
+                    lastResult = api.runCommand(cmd.id, nonce)
+                }
+            },
+            onCancelConfirm = { pendingConfirmation = null },
+            onDismissResult = { lastResult = null },
+            onSettingsTapped = {
+                settings.clear()
+                isSetup = false
+            },
+            onManageCommands = { showManage = true },
+            onAddCommand = { showAddDialog = true },
+        )
     }
 
-    PanelScreen(
-        buttons = visibleButtons,
-        pendingConfirmation = pendingConfirmation,
-        lastResult = lastResult,
-        onButtonTapped = { btn -> pendingConfirmation = btn },
-        onConfirm = {
-            val btn = pendingConfirmation ?: return@PanelScreen
-            val nonce = newNonce()
-            val api = PanelApi(settings.serverUrl(), settings.secret())
-            pendingConfirmation = null
-            lastResult = null
-            scope.launch {
-                lastResult = api.runCommand(btn.id, nonce)
-            }
-        },
-        onCancelConfirm = { pendingConfirmation = null },
-        onDismissResult = { lastResult = null },
-        onSettingsTapped = {
-            settings.clear()
-            isSetup = false
-        },
-        onManageFavorites = { showFavorites = true },
-    )
+    // Hoisted dialog overlay — works from both PanelScreen (empty-state CTA)
+    // and ManageCommandsScreen (FAB). State is app-level, not screen-level.
+    if (showAddDialog) {
+        AddCommandDialog(
+            onDismiss = { showAddDialog = false },
+            onSave = { cmd ->
+                scope.launch {
+                    commandsStore.add(cmd)
+                    showAddDialog = false
+                }
+            },
+        )
+    }
 }
 
 private fun newNonce(): String {
