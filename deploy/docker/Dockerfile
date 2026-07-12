@@ -49,7 +49,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # the entrypoint uses to switch from root (default) to the panel user
 # before launching uvicorn.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends docker.io tini gosu \
+    && apt-get install -y --no-install-recommends docker.io docker-cli tini gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root user; uid 999 is conventional for "system" service accounts.
