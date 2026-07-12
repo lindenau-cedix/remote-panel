@@ -53,10 +53,12 @@ RUN groupadd --system --gid 999 panel \
 COPY --from=builder /opt/venv /opt/venv
 COPY server/ /opt/panel/server/
 
-# Whitelist and audit locations live on mounted volumes — created at
-# start by the entrypoint so the image is self-contained.
-RUN mkdir -p /etc/panel /var/lib/panel/audit \
-    && chown -R panel:panel /etc/panel /var/lib/panel/audit
+# /etc/panel is a mounted named volume (see docker-compose.yml), so we
+# do NOT create it here. /var/lib/panel/audit is also a mounted
+# volume, but we still mkdir + chown so the mount point exists with
+# the right ownership before the volume is layered on top.
+RUN mkdir -p /var/lib/panel/audit \
+    && chown -R panel:panel /var/lib/panel/audit
 VOLUME ["/var/lib/panel/audit"]
 
 USER panel

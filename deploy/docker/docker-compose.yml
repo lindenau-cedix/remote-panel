@@ -26,6 +26,10 @@ services:
     tmpfs:
       - /tmp:size=16M,mode=1777
       - /run:size=4M,mode=0755
+    # /etc/panel must be writable because the entrypoint writes the
+    # rewritten whitelist there before validating + exec'ing uvicorn.
+    # A named volume survives container recreation, so manual edits to
+    # whitelist.src.json on the host are always re-rewritten fresh.
     user: "999:999"
     cap_drop: [ALL]
     security_opt:
@@ -43,10 +47,13 @@ services:
     volumes:
       # The source whitelist — you edit THIS one. Bind-mounted read-only.
       - ./whitelist.json:/etc/panel/whitelist.src.json:ro
-      # The rewritten whitelist — written by the entrypoint. Lives on
-      # a tmpfs so it disappears with the container; it's a pure
-      # transform of the source.
-      - wl-tmp:/etc/panel-rw
+      # The rewritten whitelist — written by the entrypoint. Lives on a
+      # named volume mounted at /etc/panel so the read-only rootfs
+      # doesn't reject the rewriter's write. Container recreation keeps
+      # the volume (intentional: a stale rewritten whitelist from a
+      # half-finished prior start shouldn't outlive the source it came
+      # from).
+      - wl-tmp:/etc/panel
       # Audit log survives container recreation.
       - panel-audit:/var/lib/panel/audit
       # The docker socket so `docker exec panel-host ...` works.

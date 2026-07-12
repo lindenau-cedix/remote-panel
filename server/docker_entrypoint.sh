@@ -19,6 +19,15 @@ DST="${PANEL_WHITELIST_PATH:-/etc/panel/whitelist.json}"
 HOST_CONTAINER="${PANEL_HOST_CONTAINER:-panel-host}"
 DOCKER_BIN="${PANEL_DOCKER_BIN:-/usr/bin/docker}"
 
+# DST lives on a named volume that is root-owned on first creation,
+# and we run as uid 999. Make the destination directory writable by
+# the panel user so the rewriter's output_file call succeeds. Safe to
+# run on subsequent boots (chown is a no-op when ownership matches).
+DST_DIR="$(dirname "$DST")"
+if [ -d "$DST_DIR" ]; then
+    chown panel:panel "$DST_DIR" 2>/dev/null || true
+fi
+
 if [ ! -f "$SRC" ]; then
     echo "[entrypoint] whitelist source not found at $SRC" >&2
     exit 1
