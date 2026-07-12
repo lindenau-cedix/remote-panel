@@ -61,7 +61,14 @@ which python3 systemctl sudo || die "missing tools after install"
 say "Step 1 — panel user + dirs"
 if ! id -u panel >/dev/null 2>&1; then
     sudo useradd --system --shell /usr/sbin/nologin --home "$APP_DIR" \
-                 --create-home panel
+                 --create-home -U panel
+fi
+# If the user existed already but has no matching group (older Debian/Ubuntu
+# default: primary group is UID-as-number), create the group now so the
+# chown below doesn't fail with "invalid group".
+if ! getent group panel >/dev/null 2>&1; then
+    sudo groupadd --system panel
+    sudo usermod -g panel panel
 fi
 sudo mkdir -p "$APP_DIR" "$SECRET_DIR"
 sudo chown panel:panel "$APP_DIR"
