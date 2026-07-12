@@ -41,10 +41,14 @@ services:
     #
     # We deliberately do NOT set `user:` here — the entrypoint runs as
     # root so it can rewrite the whitelist, then uses `gosu` to drop to
-    # uid 999 before exec'ing uvicorn. cap_drop ALL still applies to
-    # the long-running uvicorn process (it inherits them via gosu's
-    # setuid drop).
+    # uid 999 before exec'ing uvicorn. gosu needs CAP_SETUID/CAP_SETGID
+    # to make that switch; everything else is dropped because uvicorn
+    # doesn't need them and they only widen the blast radius if the
+    # panel process is compromised.
     cap_drop: [ALL]
+    cap_add:
+      - CAP_SETUID
+      - CAP_SETGID
     security_opt:
       - no-new-privileges:true
       - seccomp=unconfined                     # docker exec uses clone(CLONE_NEWNS); seccomp default blocks it. Replace with a profiled profile in production.
