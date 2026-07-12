@@ -30,6 +30,10 @@ FROM python:3.12-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    # Put the venv first so `python` resolves to it; the entrypoint
+    # invokes `python -m server.docker_rewrite` and a python -c that
+    # imports pydantic_settings. Both need the venv's site-packages.
+    PATH="/opt/venv/bin:${PATH}" \
     # The argv rewriter reads this to decide where to call docker exec.
     PANEL_HOST_CONTAINER=panel-host \
     # Where the running container reads its whitelist and writes its audit.
