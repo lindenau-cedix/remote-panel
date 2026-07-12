@@ -21,14 +21,12 @@ DST="${PANEL_WHITELIST_PATH:-/etc/panel/whitelist.json}"
 HOST_CONTAINER="${PANEL_HOST_CONTAINER:-panel-host}"
 DOCKER_BIN="${PANEL_DOCKER_BIN:-/usr/bin/docker}"
 
-# /etc/panel is a freshly-mounted named volume on first boot — root-
-# owned by default. We run as root here so the chown actually takes
-# effect (cap_drop: ALL in compose strips CAP_CHOWN from the long-
-# running uvicorn process, but the entrypoint runs unconstrained).
-DST_DIR="$(dirname "$DST")"
-if [ -d "$DST_DIR" ]; then
-    chown panel:panel "$DST_DIR"
-fi
+# /etc/panel is a tmpfs mounted with uid=999,gid=999 (see
+# docker-compose.yml), so the panel user owns the directory from the
+# start. We run as root in the entrypoint only because the rewrite
+# + validation python calls need stdlib access that's already
+# available; the rewriter itself writes as root, then gosu drops to
+# the panel user before exec'ing uvicorn. The drop happens below.
 
 if [ ! -f "$SRC" ]; then
     echo "[entrypoint] whitelist source not found at $SRC" >&2
