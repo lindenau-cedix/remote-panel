@@ -28,12 +28,16 @@ services:
       - /run:size=4M,mode=0755
       # /etc/panel is the destination for the rewritten whitelist.
       # It's a tmpfs (not a named volume) so we can set ownership
-      # directly at mount time — sidesteps the chicken-and-egg problem
-      # of needing CAP_CHOWN to chown a freshly-mounted volume when
-      # cap_drop: ALL has already stripped that capability. The
+      # directly at mount time. Mounted root-owned because the
+      # entrypoint runs as root and writes the rewritten file there
+      # before gosu-drops to uid 999 — cap_drop: ALL has stripped
+      # CAP_DAC_OVERRIDE, so root inside the container obeys normal
+      # POSIX perms and can't write into a uid-999 directory. The
+      # panel user only needs to read the file (mode 0755 = world-read
+      # on the dir, file mode 0644 = world-read on the file). The
       # rewritten whitelist is a pure transform of the source, so it's
       # safe to lose on container restart.
-      - /etc/panel:size=1M,mode=0755,uid=999,gid=999
+      - /etc/panel:size=1M,mode=0755,uid=0,gid=0
     #
     # We deliberately do NOT set `user:` here — the entrypoint runs as
     # root so it can rewrite the whitelist, then uses `gosu` to drop to
