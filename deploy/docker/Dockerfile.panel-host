@@ -1,0 +1,59 @@
+# syntax=docker/dockerfile:1.7
+#
+# Privileged sidecar that the panel container calls into with
+# `docker exec`. Holds the sudoers snippet and the host bind-mounts
+# needed for systemctl to talk to host systemd.
+#
+# This container is INTENTIONALLY minimal. It does not run a daemon
+# process — it just needs to exist so `docker exec` has something to
+# land in. The entrypoint uses `sleep infinity` so the container stays
+# up between exec calls.
+#
+# Why a sidecar instead of --privileged on the panel container:
+#   * The panel container never has root. The privilege boundary is
+#     the docker socket + this sidecar, not "everything is root".
+#   * Cap drops here are auditable: only CAP_AUDIT_WRITE for sudo.
+#   * If a vulnerability in the panel leaks RCE, the attacker still
+#     has to either (a) reach the docker socket and exec into a
+#     restricted sidecar or (b) pivot via sudo, which logs to syslog.
+#
+# Build:  docker build -f deploy/docker/Dockerfile.panel-host -t remote-panel-host:dev .
+
+FROM debian:12-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        sudo \
+        systemd \
+        tini \
+    && rm -rf /var/lib/apt/lists/*
+
+# Drop in the same sudoers snippet the bare-metal install uses, in
+# /etc/sudoers.d/panel. Mode 0440 is required by sudo; ownership must
+# be root:root. The snippet is COPY'd in from the repo so a `docker
+# compose build` always has a matching sudoers file.
+COPY server/sudoers.d/panel.example /etc/sudoers.d/panel
+RUN chmod 0440 /etc/sudoers.d/panel \
+    && chown root:root /etc/sudoers.d/panel \
+    && visudo -c -f /etc/sudoers.d/panel
+
+# Mark the image as a sidecar — never run a server here. The label
+# shows up in `docker inspect` and is grepped by the README's
+# "is this running safely?" checklist.
+LABEL org.opencontainers.image.title="remote-panel-host" \
+      org.opencontainers.image.description="Privileged sidecar for remote-panel. Do not expose. Do not run as a daemon." \
+      org.opencontainers.image.source="https://github.com/your-fork/remote-panel" \
+      org.opencontainers.image.licenses="MIT"
+
+# IMPORTANT: this container runs as root by design (it's the
+# privileged execution target). Compose drops all capabilities except
+# CAP_AUDIT_WRITE so sudo can write to the audit log, and bind-mounts
+# /run/systemd so systemctl can talk to host systemd.
+USER root
+WORKDIR /root
+
+ENTRYPOINT ["tini", "--"]
+CMD ["sleep", "infinity"]

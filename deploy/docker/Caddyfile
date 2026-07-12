@@ -1,0 +1,41 @@
+# Caddyfile for the docker-compose deployment.
+#
+# The hostname is read from the PANEL_HOSTNAME env var, which docker
+# compose injects from .env. The reverse proxy points at the panel
+# service on the panel-net network — never at 127.0.0.1, since this
+# container is on a separate network namespace.
+
+{$PANEL_HOSTNAME} {
+    encode zstd gzip
+    reverse_proxy panel:8000 {
+        # Pass the real client IP so the rate limiter keys correctly.
+        # Caddy adds X-Forwarded-For for us; panel reads the leftmost
+        # hop. See server/app.py::_client_ip.
+        header_up X-Forwarded-For {remote_host}
+    }
+
+    # Cap request bodies. /hook is JSON < 1 KB; 4 KB leaves headroom
+    # for /buttons metadata but blocks large-body DoS.
+    request_body {
+        max_size 4KB
+    }
+
+    # Restrict to the four endpoints that exist. Anything else gets
+    # a flat 404 (matches the bare-metal Caddyfile).
+    @post_hook    method POST  path /hook
+    @get_health   method GET   path /healthz
+    @get_buttons  method GET   path /buttons
+    @blocked      not method   POST  path /hook
+                    not method   GET   path /healthz
+                    not method   GET   path /buttons
+    handle_response @blocked {
+        respond "404 not found" 404
+    }
+
+    log {
+        output file /data/caddy.log {
+            roll_size 10mb
+            roll_keep 5
+        }
+    }
+}

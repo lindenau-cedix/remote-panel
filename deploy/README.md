@@ -115,3 +115,11 @@ Each line is a JSON object with `ts` (unix seconds) and an `event`. Useful
 | `408 timeout` | Command took too long | Bump `timeout_seconds` in whitelist.json |
 | Service won't start | `PANEL_SECRET` not set / too short | Check `/etc/panel/env` permissions (mode 0640, owner `root:panel`) |
 | `sudoers` parse error | Edited sudoers file broke | Run `visudo -c`; service will refuse to start otherwise |
+
+## Want to run it in Docker instead?
+
+See [`deploy/docker/README.md`](./docker/README.md). That setup uses
+three containers (the FastAPI app, a privileged sidecar that holds
+sudoers + host-systemd mounts, and Caddy) and rewrites each whitelist
+argv into `docker exec panel-host <argv>` at container start. Same
+code, same wire protocol, same Android app.

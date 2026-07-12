@@ -1,0 +1,154 @@
+# docker-compose.yml — Remote Panel
+#
+# Three services:
+#   panel       FastAPI webhook receiver. Unprivileged, no caps. Calls
+#               out to the privileged sidecar via `docker exec`.
+#   panel-host  Privileged sidecar. Holds sudoers + host systemd
+#               mount. This is the only container with any privileges.
+#   caddy       Reverse proxy. Auto-TLS via Let's Encrypt.
+#
+# Usage:
+#   cp deploy/docker/.env.example deploy/docker/.env
+#   $EDITOR deploy/docker/.env        # set PANEL_SECRET, PANEL_HOSTNAME
+#   docker compose -f deploy/docker/docker-compose.yml up -d --build
+#   curl -sf https://panel.example.com/healthz
+
+services:
+  panel:
+    build:
+      context: ../..                          # repo root
+      dockerfile: deploy/docker/Dockerfile
+    image: remote-panel:dev
+    container_name: remote-panel
+    restart: unless-stopped
+    init: false                                # tini is the entrypoint
+    read_only: true                            # /etc/panel + audit dir are tmpfs/volumes
+    tmpfs:
+      - /tmp:size=16M,mode=1777
+      - /run:size=4M,mode=0755
+    user: "999:999"
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=unconfined                     # docker exec uses clone(CLONE_NEWNS); seccomp default blocks it. Replace with a profiled profile in production.
+    environment:
+      # PANEL_SECRET comes from .env, never the host shell.
+      PANEL_SECRET: ${PANEL_SECRET:?PANEL_SECRET must be set in .env}
+      PANEL_LOG_LEVEL: ${PANEL_LOG_LEVEL:-info}
+      PANEL_HOST_CONTAINER: panel-host
+      PANEL_DOCKER_BIN: /usr/bin/docker
+      PANEL_WHITELIST_SRC: /etc/panel/whitelist.src.json
+      PANEL_WHITELIST_PATH: /etc/panel/whitelist.json
+      PANEL_AUDIT_PATH: /var/lib/panel/audit/audit.jsonl
+    volumes:
+      # The source whitelist — you edit THIS one. Bind-mounted read-only.
+      - ./whitelist.json:/etc/panel/whitelist.src.json:ro
+      # The rewritten whitelist — written by the entrypoint. Lives on
+      # a tmpfs so it disappears with the container; it's a pure
+      # transform of the source.
+      - wl-tmp:/etc/panel-rw
+      # Audit log survives container recreation.
+      - panel-audit:/var/lib/panel/audit
+      # The docker socket so `docker exec panel-host ...` works.
+      # This is the privilege boundary — anyone who can write to this
+      # socket can reach the sidecar. The panel container is the only
+      # place this socket is mounted. cap_drop ALL + no-new-privileges
+      # reduce the blast radius if panel is compromised.
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - panel-net
+    depends_on:
+      panel-host:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  panel-host:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.panel-host
+    image: remote-panel-host:dev
+    container_name: panel-host
+    restart: unless-stopped
+    init: false
+    user: "0:0"                                # root by design — this is the privileged target
+    cap_drop: [ALL]
+    cap_add:
+      - CAP_AUDIT_WRITE                        # sudo needs to write to /var/log/audit/audit.log
+      - CAP_DAC_OVERRIDE                       # sudo on Debian needs this to read /etc/shadow
+      - CAP_CHOWN
+      - CAP_FOWNER
+      - CAP_SETUID
+      - CAP_SETGID
+      - CAP_NET_BIND_SERVICE                   # some systemctl subcommands open sockets
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      # systemctl talks to host systemd over /run/systemd/private.
+      - /run/systemd:/run/systemd:ro
+      # Read-only access to the host binaries the whitelisted argv
+      # invokes. Keep this minimal — the sidecar does NOT need /etc,
+      # /home, /opt, etc.
+      - /usr/bin/systemctl:/usr/bin/systemctl:ro
+      - /usr/bin/sudo:/usr/bin/sudo:ro
+      - /usr/sbin:/usr/sbin:ro
+      - /etc/sudoers.d:/etc/sudoers.d:ro
+      # Logs surface here (host syslog/journald).
+      - /var/log:/var/log:rw
+    networks:
+      - panel-net
+    healthcheck:
+      # `sudo -n -l` lists what root can do without a password; non-zero
+      # exit means sudo itself is broken, not just the rule.
+      test: ["CMD", "sudo", "-n", "-l"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  caddy:
+    image: caddy:2
+    container_name: remote-panel-caddy
+    restart: unless-stopped
+    cap_drop: [ALL]
+    cap_add:
+      - CAP_NET_BIND_SERVICE
+      - CAP_CHOWN
+      - CAP_DAC_OVERRIDE
+      - CAP_FOWNER
+      - CAP_MKNOD
+      - CAP_SETGID
+      - CAP_SETUID
+      - CAP_SETFCAP
+      - CAP_SYS_CHROOT
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PANEL_HOSTNAME: ${PANEL_HOSTNAME:?PANEL_HOSTNAME must be set in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - panel-net
+    depends_on:
+      panel:
+        condition: service_healthy
+
+networks:
+  panel-net:
+    driver: bridge
+    internal: false                            # caddy needs outbound for ACME
+
+volumes:
+  wl-tmp:
+  panel-audit:
+  caddy-data:
+  caddy-config:

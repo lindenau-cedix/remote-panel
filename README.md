@@ -21,8 +21,9 @@ says *which command id* (e.g. `restart-nginx`).
 |---|---|
 | `server/` | FastAPI webhook receiver + tests |
 | `android/` | Kotlin + Jetpack Compose app |
-| `deploy/` | Caddyfile + deployment walkthrough |
-| `Makefile` | `test`, `run-server`, `build-apk`, `smoke` |
+| `deploy/` | Caddyfile + bare-metal deployment walkthrough |
+| `deploy/docker/` | Dockerfile + docker-compose.yml + sidecar image + walkthrough |
+| `Makefile` | `test`, `run-server`, `build-apk`, `smoke`, `docker-build`, `docker-up`, `docker-down`, `docker-reload-whitelist`, `docker-secret-rotate` |
 
 ## Threat model
 
@@ -44,7 +45,27 @@ openssl rand -hex 32          # copy this — it's the only secret both sides ne
 ```
 
 You'll paste this into the phone once at setup. The server reads it from
-`/etc/panel/env` (`PANEL_SECRET=...`).
+`/etc/panel/env` (`PANEL_SECRET=...`) on the bare-metal install, or from
+`deploy/docker/.env` (`PANEL_SECRET=...`) on the Docker install.
+
+## Pick a deployment style
+
+| | Bare metal (`systemd` + `Caddy`) | Docker (`docker compose`) |
+|---|---|---|
+| Install path | `./deploy/README.md` | `./deploy/docker/README.md` |
+| Privilege model | `systemd` sandboxing (`ProtectSystem=strict`, `NoNewPrivileges`, etc.) on a single service | `cap_drop: ALL` on three containers; privilege boundary is the `docker.sock` + a privileged `panel-host` sidecar |
+| Requires | Debian 12+, `python3-venv`, `caddy`, `sudo` | Docker Engine 24+ with Compose v2, a host running systemd |
+| Hot reload | `systemctl kill -s SIGHUP remote-panel` | `docker kill -s HUP remote-panel` |
+| Secret rotation | edit `/etc/panel/env` + restart | edit `deploy/docker/.env` + `make docker-secret-rotate` |
+
+Both paths run the same `server/` code; only the deploy artifacts differ.
+The Docker path uses `server/docker_rewrite.py` to rewrite each
+whitelist argv into `docker exec panel-host <argv>` at container start.
+The rewriter has 9 unit tests in `server/tests/test_docker_rewrite.py`.
+
+## Server setup (bare metal, Debian 12+)
+
+```bash
 
 ## Server setup (Debian 12+)
 
